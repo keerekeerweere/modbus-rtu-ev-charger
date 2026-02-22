@@ -1,37 +1,34 @@
 substitutions:
-  devicename: fake_meter_iverlek
-  friendly_name: "Fake Modbus Meter (TECHNIVOLT)"
-
-  # ---- RS485 / Modbus parameters ----
-  modbus_slave_id: "1"
+  devicename: dsmr_sdm630_emulator
+  friendly_name: "DSMR SDM630 Emulator"
+  modbus_slave_id: "2"          # SDM630 v2 is commonly expected at address 2 :contentReference[oaicite:3]{index=3}
   modbus_baud: "9600"
+
+  # UART pins (adjust to your ESP32-S3 + RS485 module)
   uart_tx_pin: GPIO17
   uart_rx_pin: GPIO18
 
-  # If HA power sensors are in kW instead of W, set to 1000.0, else 1.0
+  # Optional RS485 direction pins (ONLY if your RS485 module needs them)
+  # Leave empty/comment out if you have auto-direction RS485.
+  rs485_de_pin: GPIO16
+  rs485_re_pin: GPIO15
+
+  # If your HA power sensors are in kW, set to 1000.0; if already W, keep 1.0
   power_unit_factor_to_w: "1.0"
 
-  # How to handle current sign:
-  # - If DSMR currents are always positive (typical), keep clamp_current_to_positive true.
-  # - If DSMR currents can be negative and your charger tolerates it, set to false.
+  # Whether to clamp currents to positive (recommended for “house load” style meters)
   clamp_current_to_positive: "true"
 
-  # ---- HA entities (from DSMR ESP32 -> HA) ----
-  # Voltages per phase (V)
+  # ---- Home Assistant entities (from DSMR P1) ----
   ha_v_l1: sensor.voltage_phase_1
   ha_v_l2: sensor.voltage_phase_2
   ha_v_l3: sensor.voltage_phase_3
 
-  # Currents per phase (A) - provided by you
   ha_i_l1: sensor.current_phase_1
   ha_i_l2: sensor.current_phase_2
   ha_i_l3: sensor.current_phase_3
 
-  # Total powers (W or kW depending on factor above)
-  ha_p_cons_total: sensor.power_consumed
-  ha_p_prod_total: sensor.power_produced
-
-  # Per-phase powers (W or kW depending on factor above)
+  # If you have per-phase consumed & produced power:
   ha_p_cons_l1: sensor.power_consumed_l1
   ha_p_cons_l2: sensor.power_consumed_l2
   ha_p_cons_l3: sensor.power_consumed_l3
@@ -39,25 +36,18 @@ substitutions:
   ha_p_prod_l2: sensor.power_produced_l2
   ha_p_prod_l3: sensor.power_produced_l3
 
-  # Energy totals (kWh)
+  # Total import energy (kWh). Use what you have available in HA.
+  # Many DSMR integrations expose cumulative import/export totals.
   ha_e_import_total: sensor.energy_import_total
   ha_e_export_total: sensor.energy_export_total
 
-  # Optional per-phase energies (kWh)
-  ha_e_import_l1: sensor.energy_import_l1
-  ha_e_import_l2: sensor.energy_import_l2
-  ha_e_import_l3: sensor.energy_import_l3
-  ha_e_export_l1: sensor.energy_export_l1
-  ha_e_export_l2: sensor.energy_export_l2
-  ha_e_export_l3: sensor.energy_export_l3
-
-  # PF/frequency: constants unless you have entities for them
-  assumed_pf: "1.0"
-  assumed_freq: "50.0"
+  # Frequency (optional; if you have it, set entity; else keep empty and we’ll use 50Hz)
+  ha_freq: sensor.grid_frequency
 
 esphome:
   name: ${devicename}
   friendly_name: ${friendly_name}
+  min_version: 2025.3.3
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -66,6 +56,7 @@ esp32:
 
 logger:
   level: INFO
+  baud_rate: 0
 
 api:
 ota:
@@ -73,15 +64,17 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  fast_connect: true
+  power_save_mode: none
 
-# Modbus RTU slave/server external component
+# Use the repo’s modbus_server component (instead of Shelly code). :contentReference[oaicite:4]{index=4}
 external_components:
-  - source: github://epiclabs-io/esphome-modbus-server@master
+  - source: github://ReneWerner87/esphome-fake-eastron-SDM630-Shelly-3EM-ESPHome@master
     refresh: 60s
     components: [modbus_server]
 
 uart:
-  - id: uart_rs485
+  - id: intmodbus
     tx_pin: ${uart_tx_pin}
     rx_pin: ${uart_rx_pin}
     baud_rate: ${modbus_baud}
@@ -89,10 +82,34 @@ uart:
     data_bits: 8
     parity: NONE
 
+# Modbus slave with SDM630-style INPUT registers
+modbus_server:
+  - id: modbusserver
+    uart_id: intmodbus
+    address: ${modbus_slave_id}
+
+    # If your RS485 module needs DE/RE control, uncomment these (repo supports it in practice)
+    # de_pin: ${rs485_de_pin}
+    # re_pin: ${rs485_re_pin}
+
+    # SDM630 V2 uses input registers (FC04) for measurements; the sample allocates a block. :contentReference[oaicite:5]{index=5}
+    input_registers:
+      - start_address: 0x0000
+        default: 0
+        number: 72
+        on_read: |-
+          // Keep it simple: serve stored register values.
+          return value;
+
+      # Optional "invalid access" range like the sample (helps debugging some masters). :contentReference[oaicite:6]{index=6}
+      - start_address: 0x00C8
+        default: 0
+        number: 6
+        on_read: |-
+          return value;
+
 sensor:
-  # -----------------------------
-  # Pull raw values from HA
-  # -----------------------------
+  # --- HA raw sensors ---
   - platform: homeassistant
     id: ha_v_l1
     entity_id: ${ha_v_l1}
@@ -117,15 +134,6 @@ sensor:
   - platform: homeassistant
     id: ha_i_l3
     entity_id: ${ha_i_l3}
-    internal: true
-
-  - platform: homeassistant
-    id: ha_p_cons_total
-    entity_id: ${ha_p_cons_total}
-    internal: true
-  - platform: homeassistant
-    id: ha_p_prod_total
-    entity_id: ${ha_p_prod_total}
     internal: true
 
   - platform: homeassistant
@@ -163,45 +171,13 @@ sensor:
     entity_id: ${ha_e_export_total}
     internal: true
 
+  # Frequency is optional. If entity doesn’t exist, it will be NAN -> we fall back to 50.0
   - platform: homeassistant
-    id: ha_e_import_l1
-    entity_id: ${ha_e_import_l1}
-    internal: true
-  - platform: homeassistant
-    id: ha_e_import_l2
-    entity_id: ${ha_e_import_l2}
-    internal: true
-  - platform: homeassistant
-    id: ha_e_import_l3
-    entity_id: ${ha_e_import_l3}
+    id: ha_freq
+    entity_id: ${ha_freq}
     internal: true
 
-  - platform: homeassistant
-    id: ha_e_export_l1
-    entity_id: ${ha_e_export_l1}
-    internal: true
-  - platform: homeassistant
-    id: ha_e_export_l2
-    entity_id: ${ha_e_export_l2}
-    internal: true
-  - platform: homeassistant
-    id: ha_e_export_l3
-    entity_id: ${ha_e_export_l3}
-    internal: true
-
-  # -----------------------------
-  # Derived: net active powers (W)
-  # -----------------------------
-  - platform: template
-    id: p_net_total_w
-    internal: true
-    update_interval: 1s
-    lambda: |-
-      const float k = ${power_unit_factor_to_w};
-      float cons = id(ha_p_cons_total).has_state() ? id(ha_p_cons_total).state * k : 0.0f;
-      float prod = id(ha_p_prod_total).has_state() ? id(ha_p_prod_total).state * k : 0.0f;
-      return cons - prod; // +import / -export
-
+  # --- Derived net power per phase (W) ---
   - platform: template
     id: p_net_l1_w
     internal: true
@@ -232,10 +208,14 @@ sensor:
       float prod = id(ha_p_prod_l3).has_state() ? id(ha_p_prod_l3).state * k : 0.0f;
       return cons - prod;
 
-  # -----------------------------
-  # Currents to expose: use DSMR currents directly
-  # Optionally clamp to positive (0..inf)
-  # -----------------------------
+  - platform: template
+    id: p_total_w
+    internal: true
+    update_interval: 1s
+    lambda: |-
+      return id(p_net_l1_w).state + id(p_net_l2_w).state + id(p_net_l3_w).state;
+
+  # --- Currents to expose (A), direct from DSMR ---
   - platform: template
     id: i_l1_a
     internal: true
@@ -263,90 +243,54 @@ sensor:
       if (${clamp_current_to_positive} && i < 0.0f) i = 0.0f;
       return i;
 
-modbus_server:
-  - id: modbus_slave
-    uart_id: uart_rs485
-    address: ${modbus_slave_id}
+interval:
+  # Update Modbus registers once per second (same cadence as the sample Shelly implementation). :contentReference[oaicite:7]{index=7}
+  - interval: 1s
+    then:
+      - lambda: |-
+          // SDM630-style: IEEE-754 float packed into 2x16-bit input registers, word-swapped.
+          // The sample writes reg[1] then reg[0]. :contentReference[oaicite:8]{index=8}
+          union {
+            uint16_t reg[2];
+            float value;
+          } conv;
 
-    holding_registers:
-      # 8198..8261: Voltages/Currents/Power/PF/Frequency
-      - start_address: 8198
-        number: 80
-        default: 0
-        on_read: |-
-          auto f32_hi = [](float v) -> uint16_t { union { float f; uint32_t u; } x; x.f = v; return (uint16_t)((x.u >> 16) & 0xFFFF); };
-          auto f32_lo = [](float v) -> uint16_t { union { float f; uint32_t u; } x; x.f = v; return (uint16_t)(x.u & 0xFFFF); };
-          auto reg_f32 = [&](uint16_t base_reg, float v) -> uint16_t {
-            if (address == base_reg) return f32_hi(v);
-            if (address == (uint16_t)(base_reg + 1)) return f32_lo(v);
-            return 0;
+          auto write_f32 = [&](uint16_t addr, float v) {
+            conv.value = v;
+            id(modbusserver)->write_input_register(addr,   conv.reg[1]);
+            id(modbusserver)->write_input_register(addr+1, conv.reg[0]);
           };
 
-          uint16_t out = 0;
-
-          // Voltages (V)
-          out = reg_f32(8198, id(ha_v_l1).has_state() ? (float)id(ha_v_l1).state : 0.0f); if (out) return out;
-          out = reg_f32(8200, id(ha_v_l2).has_state() ? (float)id(ha_v_l2).state : 0.0f); if (out) return out;
-          out = reg_f32(8202, id(ha_v_l3).has_state() ? (float)id(ha_v_l3).state : 0.0f); if (out) return out;
-
-          // Currents (A) - from DSMR directly
-          out = reg_f32(8204, (float)id(i_l1_a).state); if (out) return out;
-          out = reg_f32(8206, (float)id(i_l2_a).state); if (out) return out;
-          out = reg_f32(8208, (float)id(i_l3_a).state); if (out) return out;
-
-          // Active Power (W)
-          // Total: use your provided totals (consumed - produced)
-          out = reg_f32(8210, (float)id(p_net_total_w).state); if (out) return out;
-
-          // Per-phase: net (consumed - produced)
-          out = reg_f32(8212, (float)id(p_net_l1_w).state); if (out) return out;
-          out = reg_f32(8214, (float)id(p_net_l2_w).state); if (out) return out;
-          out = reg_f32(8216, (float)id(p_net_l3_w).state); if (out) return out;
-
-          // Reactive power (var) not provided here -> 0
-          out = reg_f32(8218, 0.0f); if (out) return out;
-          out = reg_f32(8220, 0.0f); if (out) return out;
-          out = reg_f32(8222, 0.0f); if (out) return out;
-          out = reg_f32(8224, 0.0f); if (out) return out;
-
-          // PF + Frequency (constants unless you wire entities)
-          out = reg_f32(8234, ${assumed_pf}); if (out) return out;
-          out = reg_f32(8236, ${assumed_pf}); if (out) return out;
-          out = reg_f32(8238, ${assumed_pf}); if (out) return out;
-          out = reg_f32(8240, ${assumed_pf}); if (out) return out;
-          out = reg_f32(8260, ${assumed_freq}); if (out) return out;
-
-          return 0;
-
-      # 16400..16425: energies (kWh)
-      - start_address: 16400
-        number: 64
-        default: 0
-        on_read: |-
-          auto f32_hi = [](float v) -> uint16_t { union { float f; uint32_t u; } x; x.f = v; return (uint16_t)((x.u >> 16) & 0xFFFF); };
-          auto f32_lo = [](float v) -> uint16_t { union { float f; uint32_t u; } x; x.f = v; return (uint16_t)(x.u & 0xFFFF); };
-          auto reg_f32 = [&](uint16_t base_reg, float v) -> uint16_t {
-            if (address == base_reg) return f32_hi(v);
-            if (address == (uint16_t)(base_reg + 1)) return f32_lo(v);
-            return 0;
-          };
-          auto safe = [](esphome::sensor::Sensor *s) -> float {
-            return (s != nullptr && s->has_state()) ? (float)s->state : 0.0f;
+          auto safe = [](esphome::sensor::Sensor *s, float fallback) -> float {
+            if (s != nullptr && s->has_state() && !isnan(s->state)) return (float) s->state;
+            return fallback;
           };
 
-          uint16_t out = 0;
+          // --- Registers used by the sample mapping (subset) ---
+          // 0x0000.. : Voltages L1/L2/L3
+          write_f32(0x0000, safe(id(ha_v_l1), 230.0f));
+          write_f32(0x0002, safe(id(ha_v_l2), 230.0f));
+          write_f32(0x0004, safe(id(ha_v_l3), 230.0f));
 
-          // Per-phase energies (optional)
-          out = reg_f32(16400, safe(id(ha_e_import_l1))); if (out) return out;
-          out = reg_f32(16402, safe(id(ha_e_import_l2))); if (out) return out;
-          out = reg_f32(16404, safe(id(ha_e_import_l3))); if (out) return out;
+          // 0x0006.. : Currents L1/L2/L3
+          write_f32(0x0006, (float) id(i_l1_a).state);
+          write_f32(0x0008, (float) id(i_l2_a).state);
+          write_f32(0x000A, (float) id(i_l3_a).state);
 
-          out = reg_f32(16406, safe(id(ha_e_export_l1))); if (out) return out;
-          out = reg_f32(16408, safe(id(ha_e_export_l2))); if (out) return out;
-          out = reg_f32(16410, safe(id(ha_e_export_l3))); if (out) return out;
+          // 0x000C.. : Active power per phase
+          write_f32(0x000C, (float) id(p_net_l1_w).state);
+          write_f32(0x000E, (float) id(p_net_l2_w).state);
+          write_f32(0x0010, (float) id(p_net_l3_w).state);
 
-          // Totals (commonly polled)
-          out = reg_f32(16414, safe(id(ha_e_import_total))); if (out) return out;
-          out = reg_f32(16424, safe(id(ha_e_export_total))); if (out) return out;
+          // 0x0046 : Frequency
+          write_f32(0x0046, safe(id(ha_freq), 50.0f));
 
-          return 0;
+          // 0x0156 : Total energy (kWh)
+          // The sample provides one "total energy" register (kWh). :contentReference[oaicite:9]{index=9}
+          // DSMR has separate import/export totals; SDM630 “total” varies by interpretation.
+          // Here: net import kWh = import_total - export_total (never below 0).
+          float e_imp = safe(id(ha_e_import_total), 0.0f);
+          float e_exp = safe(id(ha_e_export_total), 0.0f);
+          float e_net = e_imp - e_exp;
+          if (e_net < 0.0f) e_net = 0.0f;
+          write_f32(0x0156, e_net);
