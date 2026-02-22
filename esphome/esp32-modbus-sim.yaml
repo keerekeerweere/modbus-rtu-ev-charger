@@ -1,0 +1,352 @@
+substitutions:
+  devicename: fake_meter_iverlek
+  friendly_name: "Fake Modbus Meter (TECHNIVOLT)"
+
+  # ---- RS485 / Modbus parameters ----
+  modbus_slave_id: "1"
+  modbus_baud: "9600"
+  uart_tx_pin: GPIO17
+  uart_rx_pin: GPIO18
+
+  # If HA power sensors are in kW instead of W, set to 1000.0, else 1.0
+  power_unit_factor_to_w: "1.0"
+
+  # How to handle current sign:
+  # - If DSMR currents are always positive (typical), keep clamp_current_to_positive true.
+  # - If DSMR currents can be negative and your charger tolerates it, set to false.
+  clamp_current_to_positive: "true"
+
+  # ---- HA entities (from DSMR ESP32 -> HA) ----
+  # Voltages per phase (V)
+  ha_v_l1: sensor.voltage_phase_1
+  ha_v_l2: sensor.voltage_phase_2
+  ha_v_l3: sensor.voltage_phase_3
+
+  # Currents per phase (A) - provided by you
+  ha_i_l1: sensor.current_phase_1
+  ha_i_l2: sensor.current_phase_2
+  ha_i_l3: sensor.current_phase_3
+
+  # Total powers (W or kW depending on factor above)
+  ha_p_cons_total: sensor.power_consumed
+  ha_p_prod_total: sensor.power_produced
+
+  # Per-phase powers (W or kW depending on factor above)
+  ha_p_cons_l1: sensor.power_consumed_l1
+  ha_p_cons_l2: sensor.power_consumed_l2
+  ha_p_cons_l3: sensor.power_consumed_l3
+  ha_p_prod_l1: sensor.power_produced_l1
+  ha_p_prod_l2: sensor.power_produced_l2
+  ha_p_prod_l3: sensor.power_produced_l3
+
+  # Energy totals (kWh)
+  ha_e_import_total: sensor.energy_import_total
+  ha_e_export_total: sensor.energy_export_total
+
+  # Optional per-phase energies (kWh)
+  ha_e_import_l1: sensor.energy_import_l1
+  ha_e_import_l2: sensor.energy_import_l2
+  ha_e_import_l3: sensor.energy_import_l3
+  ha_e_export_l1: sensor.energy_export_l1
+  ha_e_export_l2: sensor.energy_export_l2
+  ha_e_export_l3: sensor.energy_export_l3
+
+  # PF/frequency: constants unless you have entities for them
+  assumed_pf: "1.0"
+  assumed_freq: "50.0"
+
+esphome:
+  name: ${devicename}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+
+logger:
+  level: INFO
+
+api:
+ota:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Modbus RTU slave/server external component
+external_components:
+  - source: github://epiclabs-io/esphome-modbus-server@master
+    refresh: 60s
+    components: [modbus_server]
+
+uart:
+  - id: uart_rs485
+    tx_pin: ${uart_tx_pin}
+    rx_pin: ${uart_rx_pin}
+    baud_rate: ${modbus_baud}
+    stop_bits: 1
+    data_bits: 8
+    parity: NONE
+
+sensor:
+  # -----------------------------
+  # Pull raw values from HA
+  # -----------------------------
+  - platform: homeassistant
+    id: ha_v_l1
+    entity_id: ${ha_v_l1}
+    internal: true
+  - platform: homeassistant
+    id: ha_v_l2
+    entity_id: ${ha_v_l2}
+    internal: true
+  - platform: homeassistant
+    id: ha_v_l3
+    entity_id: ${ha_v_l3}
+    internal: true
+
+  - platform: homeassistant
+    id: ha_i_l1
+    entity_id: ${ha_i_l1}
+    internal: true
+  - platform: homeassistant
+    id: ha_i_l2
+    entity_id: ${ha_i_l2}
+    internal: true
+  - platform: homeassistant
+    id: ha_i_l3
+    entity_id: ${ha_i_l3}
+    internal: true
+
+  - platform: homeassistant
+    id: ha_p_cons_total
+    entity_id: ${ha_p_cons_total}
+    internal: true
+  - platform: homeassistant
+    id: ha_p_prod_total
+    entity_id: ${ha_p_prod_total}
+    internal: true
+
+  - platform: homeassistant
+    id: ha_p_cons_l1
+    entity_id: ${ha_p_cons_l1}
+    internal: true
+  - platform: homeassistant
+    id: ha_p_cons_l2
+    entity_id: ${ha_p_cons_l2}
+    internal: true
+  - platform: homeassistant
+    id: ha_p_cons_l3
+    entity_id: ${ha_p_cons_l3}
+    internal: true
+
+  - platform: homeassistant
+    id: ha_p_prod_l1
+    entity_id: ${ha_p_prod_l1}
+    internal: true
+  - platform: homeassistant
+    id: ha_p_prod_l2
+    entity_id: ${ha_p_prod_l2}
+    internal: true
+  - platform: homeassistant
+    id: ha_p_prod_l3
+    entity_id: ${ha_p_prod_l3}
+    internal: true
+
+  - platform: homeassistant
+    id: ha_e_import_total
+    entity_id: ${ha_e_import_total}
+    internal: true
+  - platform: homeassistant
+    id: ha_e_export_total
+    entity_id: ${ha_e_export_total}
+    internal: true
+
+  - platform: homeassistant
+    id: ha_e_import_l1
+    entity_id: ${ha_e_import_l1}
+    internal: true
+  - platform: homeassistant
+    id: ha_e_import_l2
+    entity_id: ${ha_e_import_l2}
+    internal: true
+  - platform: homeassistant
+    id: ha_e_import_l3
+    entity_id: ${ha_e_import_l3}
+    internal: true
+
+  - platform: homeassistant
+    id: ha_e_export_l1
+    entity_id: ${ha_e_export_l1}
+    internal: true
+  - platform: homeassistant
+    id: ha_e_export_l2
+    entity_id: ${ha_e_export_l2}
+    internal: true
+  - platform: homeassistant
+    id: ha_e_export_l3
+    entity_id: ${ha_e_export_l3}
+    internal: true
+
+  # -----------------------------
+  # Derived: net active powers (W)
+  # -----------------------------
+  - platform: template
+    id: p_net_total_w
+    internal: true
+    update_interval: 1s
+    lambda: |-
+      const float k = ${power_unit_factor_to_w};
+      float cons = id(ha_p_cons_total).has_state() ? id(ha_p_cons_total).state * k : 0.0f;
+      float prod = id(ha_p_prod_total).has_state() ? id(ha_p_prod_total).state * k : 0.0f;
+      return cons - prod; // +import / -export
+
+  - platform: template
+    id: p_net_l1_w
+    internal: true
+    update_interval: 1s
+    lambda: |-
+      const float k = ${power_unit_factor_to_w};
+      float cons = id(ha_p_cons_l1).has_state() ? id(ha_p_cons_l1).state * k : 0.0f;
+      float prod = id(ha_p_prod_l1).has_state() ? id(ha_p_prod_l1).state * k : 0.0f;
+      return cons - prod;
+
+  - platform: template
+    id: p_net_l2_w
+    internal: true
+    update_interval: 1s
+    lambda: |-
+      const float k = ${power_unit_factor_to_w};
+      float cons = id(ha_p_cons_l2).has_state() ? id(ha_p_cons_l2).state * k : 0.0f;
+      float prod = id(ha_p_prod_l2).has_state() ? id(ha_p_prod_l2).state * k : 0.0f;
+      return cons - prod;
+
+  - platform: template
+    id: p_net_l3_w
+    internal: true
+    update_interval: 1s
+    lambda: |-
+      const float k = ${power_unit_factor_to_w};
+      float cons = id(ha_p_cons_l3).has_state() ? id(ha_p_cons_l3).state * k : 0.0f;
+      float prod = id(ha_p_prod_l3).has_state() ? id(ha_p_prod_l3).state * k : 0.0f;
+      return cons - prod;
+
+  # -----------------------------
+  # Currents to expose: use DSMR currents directly
+  # Optionally clamp to positive (0..inf)
+  # -----------------------------
+  - platform: template
+    id: i_l1_a
+    internal: true
+    update_interval: 1s
+    lambda: |-
+      float i = id(ha_i_l1).has_state() ? (float)id(ha_i_l1).state : 0.0f;
+      if (${clamp_current_to_positive} && i < 0.0f) i = 0.0f;
+      return i;
+
+  - platform: template
+    id: i_l2_a
+    internal: true
+    update_interval: 1s
+    lambda: |-
+      float i = id(ha_i_l2).has_state() ? (float)id(ha_i_l2).state : 0.0f;
+      if (${clamp_current_to_positive} && i < 0.0f) i = 0.0f;
+      return i;
+
+  - platform: template
+    id: i_l3_a
+    internal: true
+    update_interval: 1s
+    lambda: |-
+      float i = id(ha_i_l3).has_state() ? (float)id(ha_i_l3).state : 0.0f;
+      if (${clamp_current_to_positive} && i < 0.0f) i = 0.0f;
+      return i;
+
+modbus_server:
+  - id: modbus_slave
+    uart_id: uart_rs485
+    address: ${modbus_slave_id}
+
+    holding_registers:
+      # 8198..8261: Voltages/Currents/Power/PF/Frequency
+      - start_address: 8198
+        number: 80
+        default: 0
+        on_read: |-
+          auto f32_hi = [](float v) -> uint16_t { union { float f; uint32_t u; } x; x.f = v; return (uint16_t)((x.u >> 16) & 0xFFFF); };
+          auto f32_lo = [](float v) -> uint16_t { union { float f; uint32_t u; } x; x.f = v; return (uint16_t)(x.u & 0xFFFF); };
+          auto reg_f32 = [&](uint16_t base_reg, float v) -> uint16_t {
+            if (address == base_reg) return f32_hi(v);
+            if (address == (uint16_t)(base_reg + 1)) return f32_lo(v);
+            return 0;
+          };
+
+          uint16_t out = 0;
+
+          // Voltages (V)
+          out = reg_f32(8198, id(ha_v_l1).has_state() ? (float)id(ha_v_l1).state : 0.0f); if (out) return out;
+          out = reg_f32(8200, id(ha_v_l2).has_state() ? (float)id(ha_v_l2).state : 0.0f); if (out) return out;
+          out = reg_f32(8202, id(ha_v_l3).has_state() ? (float)id(ha_v_l3).state : 0.0f); if (out) return out;
+
+          // Currents (A) - from DSMR directly
+          out = reg_f32(8204, (float)id(i_l1_a).state); if (out) return out;
+          out = reg_f32(8206, (float)id(i_l2_a).state); if (out) return out;
+          out = reg_f32(8208, (float)id(i_l3_a).state); if (out) return out;
+
+          // Active Power (W)
+          // Total: use your provided totals (consumed - produced)
+          out = reg_f32(8210, (float)id(p_net_total_w).state); if (out) return out;
+
+          // Per-phase: net (consumed - produced)
+          out = reg_f32(8212, (float)id(p_net_l1_w).state); if (out) return out;
+          out = reg_f32(8214, (float)id(p_net_l2_w).state); if (out) return out;
+          out = reg_f32(8216, (float)id(p_net_l3_w).state); if (out) return out;
+
+          // Reactive power (var) not provided here -> 0
+          out = reg_f32(8218, 0.0f); if (out) return out;
+          out = reg_f32(8220, 0.0f); if (out) return out;
+          out = reg_f32(8222, 0.0f); if (out) return out;
+          out = reg_f32(8224, 0.0f); if (out) return out;
+
+          // PF + Frequency (constants unless you wire entities)
+          out = reg_f32(8234, ${assumed_pf}); if (out) return out;
+          out = reg_f32(8236, ${assumed_pf}); if (out) return out;
+          out = reg_f32(8238, ${assumed_pf}); if (out) return out;
+          out = reg_f32(8240, ${assumed_pf}); if (out) return out;
+          out = reg_f32(8260, ${assumed_freq}); if (out) return out;
+
+          return 0;
+
+      # 16400..16425: energies (kWh)
+      - start_address: 16400
+        number: 64
+        default: 0
+        on_read: |-
+          auto f32_hi = [](float v) -> uint16_t { union { float f; uint32_t u; } x; x.f = v; return (uint16_t)((x.u >> 16) & 0xFFFF); };
+          auto f32_lo = [](float v) -> uint16_t { union { float f; uint32_t u; } x; x.f = v; return (uint16_t)(x.u & 0xFFFF); };
+          auto reg_f32 = [&](uint16_t base_reg, float v) -> uint16_t {
+            if (address == base_reg) return f32_hi(v);
+            if (address == (uint16_t)(base_reg + 1)) return f32_lo(v);
+            return 0;
+          };
+          auto safe = [](esphome::sensor::Sensor *s) -> float {
+            return (s != nullptr && s->has_state()) ? (float)s->state : 0.0f;
+          };
+
+          uint16_t out = 0;
+
+          // Per-phase energies (optional)
+          out = reg_f32(16400, safe(id(ha_e_import_l1))); if (out) return out;
+          out = reg_f32(16402, safe(id(ha_e_import_l2))); if (out) return out;
+          out = reg_f32(16404, safe(id(ha_e_import_l3))); if (out) return out;
+
+          out = reg_f32(16406, safe(id(ha_e_export_l1))); if (out) return out;
+          out = reg_f32(16408, safe(id(ha_e_export_l2))); if (out) return out;
+          out = reg_f32(16410, safe(id(ha_e_export_l3))); if (out) return out;
+
+          // Totals (commonly polled)
+          out = reg_f32(16414, safe(id(ha_e_import_total))); if (out) return out;
+          out = reg_f32(16424, safe(id(ha_e_export_total))); if (out) return out;
+
+          return 0;
